@@ -1,0 +1,65 @@
+{
+  "baselines": {
+    "Static Honeypot": {
+      "mean_dwell_time_seconds": 17.89,
+      "median_dwell_time_seconds": 17.72,
+      "std_deviation": 3.9,
+      "confidence_interval_95": [
+        16.5,
+        19.29
+      ]
+    },
+    "Random Deception": {
+      "mean_dwell_time_seconds": 29.41,
+      "median_dwell_time_seconds": 28.46,
+      "std_deviation": 8.46,
+      "confidence_interval_95": [
+        26.38,
+        32.43
+      ]
+    },
+    "No Deception": {
+      "mean_dwell_time_seconds": 3.34,
+      "median_dwell_time_seconds": 3.59,
+      "std_deviation": 1.0,
+      "confidence_interval_95": [
+        2.99,
+        3.7
+      ]
+    },
+    "PRAETOR (CMARL)": {
+      "mean_dwell_time_seconds": 118.34,
+      "median_dwell_time_seconds": 108.74,
+      "std_deviation": 36.61,
+      "confidence_interval_95": [
+        105.24,
+        131.44
+      ]
+    }
+  },
+  "ablation": {
+    "Full Architecture": {
+      "mean_intelligence_points": 68.3,
+      "performance_degradation_pct": 0.0
+    },
+    "Without Behavior Graph": {
+      "mean_intelligence_points": 43.55,
+      "performance_degradation_pct": 36.24
+    },
+    "Without Threat Intelligence": {
+      "mean_intelligence_points": 36.25,
+      "performance_degradation_pct": 46.93
+    },
+    "Without CMARL Engine": {
+      "mean_intelligence_points": 19.35,
+      "performance_degradation_pct": 71.67
+    }
+  },
+  "scalability": {
+    "sessions_processed": 100,
+    "mean_decision_latency_ms": 6.8973,
+    "max_decision_latency_ms": 39.3984,
+    "system_throughput_sessions_per_sec": 144.95,
+    "total_execution_duration_sec": 0.6899
+  }
+}

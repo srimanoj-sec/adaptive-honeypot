@@ -1,0 +1,190 @@
+import asyncio
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, UTC
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from backend.api import logs, decisions, geoip, threat_intel, timeline, sessions, research, dashboard, attacks, admin, digital_twin, deception_diagnostics, demo
+from backend.database import init_db, SessionLocal
+from backend.services.classifier import load_models
+from backend.api.adaptive import router as adaptive_router
+from backend.models.session import AttackerSession
+from backend.core.cooperative_rl_engine import update_q_table_for_session
+from backend.config import settings
+
+from fastapi.responses import JSONResponse
+from backend.middleware.security import (
+    SecurityHeadersMiddleware,
+    ContentSizeLimitMiddleware,
+    InMemoryRateLimiterMiddleware
+)
+import logging
+from logging.handlers import RotatingFileHandler
+
+logger = logging.getLogger("backend_main")
+
+async def session_reaper():
+    """
+    Background task to automatically reap (close) inactive sessions and trigger Q-learning updates.
+    """
+    while True:
+        try:
+            await asyncio.sleep(5)  # check every 5 seconds
+            db = SessionLocal()
+            try:
+                # Find active sessions inactive for more than 15 seconds
+                time_limit = datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=15)
+                expired_sessions = db.query(AttackerSession).filter(
+                    AttackerSession.is_active == True,
+                    AttackerSession.last_seen < time_limit
+                ).all()
+
+                for session in expired_sessions:
+                    session.is_active = False
+                    if session.rl_state and session.rl_action:
+                        update_q_table_for_session(
+                            db=db,
+                            session_id=session.session_id,
+                            state_str=session.rl_state,
+                            action_str=session.rl_action,
+                            deception_score=session.rl_deception_score or 0.0
+                        )
+                db.commit()
+            except Exception as e:
+                db.rollback()
+                logger.error(f"Error in session reaper iteration: {e}", exc_info=True)
+            finally:
+                db.close()
+        except Exception as e:
+            logger.error(f"General error in session reaper: {e}", exc_info=True)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Configure structured logging with rotation on startup
+    log_file = os.path.join(settings.LOG_DIR, "praetor.log")
+    os.makedirs(settings.LOG_DIR, exist_ok=True)
+    
+    file_handler = RotatingFileHandler(
+        log_file,
+        maxBytes=settings.LOG_MAX_BYTES,
+        backupCount=settings.LOG_BACKUP_COUNT
+    )
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    file_handler.setFormatter(formatter)
+    
+    root_logger = logging.getLogger()
+    root_logger.addHandler(file_handler)
+    root_logger.setLevel(logging.INFO)
+
+    # Startup
+    init_db()
+    load_models()
+    asyncio.create_task(session_reaper())
+    yield
+    # Shutdown (nothing to clean up currently)
+
+import os
+
+app = FastAPI(title="Adaptive AI Honeypot", version="1.0.0", lifespan=lifespan)
+
+# Register custom security middlewares
+app.add_middleware(InMemoryRateLimiterMiddleware)
+app.add_middleware(ContentSizeLimitMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
+
+# Restrict CORS to known-good local/dashboard origins. A wildcard origin on an
+# app that exposes admin/reset endpoints lets any website on the internet
+# script requests against a locally-running honeypot from the victim's browser.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins_list,
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type", "X-Admin-Key", "X-Management-Key"]
+)
+
+# Global unhandled exception handler to prevent traceback disclosures
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled exception on {request.method} {request.url.path}: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"error": "Internal server error"}
+    )
+
+# Register API Routers
+app.include_router(logs.router, prefix="/api/logs", tags=["Logs"])
+app.include_router(decisions.router)
+app.include_router(sessions.router)
+app.include_router(digital_twin.router)
+app.include_router(deception_diagnostics.router)
+app.include_router(admin.router)
+app.include_router(adaptive_router)
+app.include_router(geoip.router)
+app.include_router(timeline.router)
+app.include_router(research.router)
+app.include_router(dashboard.router)
+app.include_router(attacks.router)
+app.include_router(demo.router)
+app.include_router(threat_intel.router)
+
+@app.get("/")
+def root(request: Request):
+    if "text/html" in request.headers.get("accept", ""):
+        return FileResponse("frontend/index.html")
+    return {"status": "Honeypot active", "version": "1.0.0"}
+
+@app.get("/health")
+def health_check():
+    import socket
+    from backend.database import engine
+    from backend.services.classifier import _rf, _xgb
+
+    # 1. Database Status
+    db_ok = False
+    try:
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        db_ok = True
+    except Exception:
+        db_ok = False
+
+    # 2. ML Models Status
+    ml_ok = bool(_rf is not None and _xgb is not None)
+
+    # 3. Honeypot Ports Check (SSH 2222, HTTP 8080, Telnet 2323)
+    def check_port(port: int) -> bool:
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(0.5)
+            res = s.connect_ex(('127.0.0.1', port))
+            s.close()
+            return res == 0
+        except Exception:
+            return False
+
+    honeypot_ports = {
+        "ssh_2222": check_port(2222),
+        "http_8080": check_port(8080),
+        "telnet_2323": check_port(2323)
+    }
+
+    all_systems_go = db_ok and ml_ok
+
+    return {
+        "status": "healthy" if all_systems_go else "degraded",
+        "timestamp": datetime.now(UTC).isoformat() + "Z",
+        "subsystems": {
+            "api": "operational",
+            "database": "operational" if db_ok else "unreachable",
+            "ml_classifier": "operational" if ml_ok else "uninitialized",
+            "cmaql_rl_engine": "operational",
+            "honeypot_services": honeypot_ports
+        }
+    }
+
+# Serve Frontend Static Files (index.html, styles, api client)
+app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
+

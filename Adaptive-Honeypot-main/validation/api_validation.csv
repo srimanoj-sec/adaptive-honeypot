@@ -1,0 +1,11 @@
+Method,Path,Status Code,Response Time (ms),Result Status
+GET,/,200,139.45,OK
+GET,/api/logs,401,14.66,ERROR
+GET,/api/logs/recent,401,14.67,ERROR
+GET,/api/sessions,401,15.61,ERROR
+GET,/api/sessions/clusters,401,12.09,ERROR
+GET,/api/research/metrics,401,22.09,ERROR
+GET,/api/research/learning-curve,401,18.25,ERROR
+GET,/api/research/benchmark,401,16.02,ERROR
+GET,/api/diagnostics/policies,401,14.23,ERROR
+GET,/api/diagnostics/enterprise-profiles,401,11.93,ERROR

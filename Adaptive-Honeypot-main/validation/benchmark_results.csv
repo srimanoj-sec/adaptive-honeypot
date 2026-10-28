@@ -1,0 +1,9 @@
+Metric Group,Key,Mean,Median,Std Dev
+Baseline,Static Honeypot,17.89,17.72,3.9
+Baseline,Random Deception,29.41,28.46,8.46
+Baseline,No Deception,3.34,3.59,1.0
+Baseline,PRAETOR (CMARL),118.34,108.74,36.61
+Ablation,Full Architecture,68.3,,0.0
+Ablation,Without Behavior Graph,43.55,,36.24
+Ablation,Without Threat Intelligence,36.25,,46.93
+Ablation,Without CMARL Engine,19.35,,71.67
